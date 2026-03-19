@@ -1,0 +1,36 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+raftnova
+
+# Test binary
+*.test
+
+# Output
+*.out
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# WAL data
+data/
+
+# Build
+bin/
+dist/
+
+# Coverage
+coverage.html
+coverage.out
