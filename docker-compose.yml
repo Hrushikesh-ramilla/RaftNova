@@ -1,0 +1,138 @@
+version: "3.8"
+
+services:
+  node-1:
+    build: .
+    container_name: raftnova-node-1
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - node1-data:/home/raftnova/data
+    command: >
+      --node-id=node-1
+      --http-addr=:8080
+      --grpc-addr=:9090
+      --peers=node-2,node-3,node-4,node-5
+      --peer-grpc-addrs=node-2=node-2:9090,node-3=node-3:9090,node-4=node-4:9090,node-5=node-5:9090
+      --peer-http-addrs=node-1=node-1:8080,node-2=node-2:8080,node-3=node-3:8080,node-4=node-4:8080,node-5=node-5:8080
+      --data-dir=/home/raftnova/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  node-2:
+    build: .
+    container_name: raftnova-node-2
+    ports:
+      - "8081:8080"
+      - "9091:9090"
+    volumes:
+      - node2-data:/home/raftnova/data
+    command: >
+      --node-id=node-2
+      --http-addr=:8080
+      --grpc-addr=:9090
+      --peers=node-1,node-3,node-4,node-5
+      --peer-grpc-addrs=node-1=node-1:9090,node-3=node-3:9090,node-4=node-4:9090,node-5=node-5:9090
+      --peer-http-addrs=node-1=node-1:8080,node-2=node-2:8080,node-3=node-3:8080,node-4=node-4:8080,node-5=node-5:8080
+      --data-dir=/home/raftnova/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  node-3:
+    build: .
+    container_name: raftnova-node-3
+    ports:
+      - "8082:8080"
+      - "9092:9090"
+    volumes:
+      - node3-data:/home/raftnova/data
+    command: >
+      --node-id=node-3
+      --http-addr=:8080
+      --grpc-addr=:9090
+      --peers=node-1,node-2,node-4,node-5
+      --peer-grpc-addrs=node-1=node-1:9090,node-2=node-2:9090,node-4=node-4:9090,node-5=node-5:9090
+      --peer-http-addrs=node-1=node-1:8080,node-2=node-2:8080,node-3=node-3:8080,node-4=node-4:8080,node-5=node-5:8080
+      --data-dir=/home/raftnova/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  node-4:
+    build: .
+    container_name: raftnova-node-4
+    ports:
+      - "8083:8080"
+      - "9093:9090"
+    volumes:
+      - node4-data:/home/raftnova/data
+    command: >
+      --node-id=node-4
+      --http-addr=:8080
+      --grpc-addr=:9090
+      --peers=node-1,node-2,node-3,node-5
+      --peer-grpc-addrs=node-1=node-1:9090,node-2=node-2:9090,node-3=node-3:9090,node-5=node-5:9090
+      --peer-http-addrs=node-1=node-1:8080,node-2=node-2:8080,node-3=node-3:8080,node-4=node-4:8080,node-5=node-5:8080
+      --data-dir=/home/raftnova/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+  node-5:
+    build: .
+    container_name: raftnova-node-5
+    ports:
+      - "8084:8080"
+      - "9094:9090"
+    volumes:
+      - node5-data:/home/raftnova/data
+    command: >
+      --node-id=node-5
+      --http-addr=:8080
+      --grpc-addr=:9090
+      --peers=node-1,node-2,node-3,node-4
+      --peer-grpc-addrs=node-1=node-1:9090,node-2=node-2:9090,node-3=node-3:9090,node-4=node-4:9090
+      --peer-http-addrs=node-1=node-1:8080,node-2=node-2:8080,node-3=node-3:8080,node-4=node-4:8080,node-5=node-5:8080
+      --data-dir=/home/raftnova/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - raft-net
+    restart: unless-stopped
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+  node4-data:
+  node5-data:
+
+networks:
+  raft-net:
+    driver: bridge

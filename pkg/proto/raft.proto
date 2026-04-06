@@ -1,0 +1,59 @@
+syntax = "proto3";
+package raft;
+option go_package = "github.com/hrushikesh-ramilla/raftnova/pkg/proto";
+
+service Raft {
+  rpc RequestVote(VoteRequest) returns (VoteResponse);
+  rpc AppendEntries(AppendRequest) returns (AppendResponse);
+}
+
+service KV {
+  rpc Execute(CommandRequest) returns (CommandResponse);
+}
+
+message VoteRequest {
+  uint64 term = 1;
+  string candidate_id = 2;
+  uint64 last_log_index = 3;
+  uint64 last_log_term = 4;
+}
+
+message VoteResponse {
+  uint64 term = 1;
+  bool vote_granted = 2;
+}
+
+message LogEntryProto {
+  uint64 term = 1;
+  uint64 index = 2;
+  bytes command = 3;
+}
+
+message AppendRequest {
+  uint64 term = 1;
+  string leader_id = 2;
+  uint64 prev_log_index = 3;
+  uint64 prev_log_term = 4;
+  repeated LogEntryProto entries = 5;
+  uint64 leader_commit = 6;
+}
+
+message AppendResponse {
+  uint64 term = 1;
+  bool success = 2;
+  uint64 conflict_term = 3;
+  uint64 conflict_index = 4;
+}
+
+message CommandRequest {
+  string op = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message CommandResponse {
+  bool success = 1;
+  string value = 2;
+  string error = 3;
+  string leader_hint = 4;
+}
