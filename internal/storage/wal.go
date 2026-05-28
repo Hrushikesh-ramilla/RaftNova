@@ -170,6 +170,54 @@ func (w *WAL) Append(recordType uint32, payload interface{}) error {
 	return nil
 }
 
+// AppendMany writes multiple records to the WAL with a single fsync.
+func (w *WAL) AppendMany(records []struct{Type uint32; Payload interface{}}) error {
+	var totalBuf []byte
+	for _, rec := range records {
+		data, err := json.Marshal(rec.Payload)
+		if err != nil {
+			return fmt.Errorf("marshal WAL payload: %w", err)
+		}
+		
+		recordSize := int64(4 + 4 + len(data) + 4)
+		if w.fileSize+int64(len(totalBuf))+recordSize > maxWALSize {
+			if len(totalBuf) > 0 {
+				if _, err := w.file.Write(totalBuf); err != nil {
+					return err
+				}
+				w.fileSize += int64(len(totalBuf))
+				totalBuf = nil
+			}
+			if err := w.rotate(); err != nil {
+				return err
+			}
+		}
+
+		buf := make([]byte, 4+4+len(data)+4)
+		binary.LittleEndian.PutUint32(buf[0:4], rec.Type)
+		binary.LittleEndian.PutUint32(buf[4:8], uint32(len(data)))
+		copy(buf[8:8+len(data)], data)
+
+		checksum := crc32.ChecksumIEEE(buf[:8+len(data)])
+		binary.LittleEndian.PutUint32(buf[8+len(data):], checksum)
+		
+		totalBuf = append(totalBuf, buf...)
+	}
+
+	if len(totalBuf) > 0 {
+		if _, err := w.file.Write(totalBuf); err != nil {
+			return fmt.Errorf("write WAL records: %w", err)
+		}
+		w.fileSize += int64(len(totalBuf))
+	}
+
+	if err := w.file.Sync(); err != nil {
+		return fmt.Errorf("fsync WAL: %w", err)
+	}
+
+	return nil
+}
+
 func (w *WAL) rotate() error {
 	if w.file != nil {
 		if err := w.file.Close(); err != nil {
@@ -327,6 +375,18 @@ func (w *WAL) PersistVote(votedFor string, term uint64) error {
 // PersistEntry writes a log entry record to the WAL.
 func (w *WAL) PersistEntry(index, term uint64, command []byte) error {
 	return w.Append(RecordEntry, EntryRecord{Index: index, Term: term, Command: command})
+}
+
+// PersistEntries writes multiple log entries to the WAL with a single fsync.
+func (w *WAL) PersistEntries(entries []EntryRecord) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	records := make([]struct{Type uint32; Payload interface{}}, len(entries))
+	for i, e := range entries {
+		records[i] = struct{Type uint32; Payload interface{}}{Type: RecordEntry, Payload: e}
+	}
+	return w.AppendMany(records)
 }
 
 // Close closes the current WAL file.

@@ -34,10 +34,24 @@ func NewHandler(node *raft.Node, store *kvstore.KVStore, peerHTTPAddrs map[raft.
 	}
 }
 
+// corsMiddleware adds CORS headers so the React dashboard can talk to the backend.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RegisterRoutes registers all HTTP routes on the given mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/kv/", h.handleKV)
-	mux.HandleFunc("/status", h.handleStatus)
+	mux.Handle("/kv/", corsMiddleware(http.HandlerFunc(h.handleKV)))
+	mux.Handle("/status", corsMiddleware(http.HandlerFunc(h.handleStatus)))
 	mux.HandleFunc("/healthz", h.handleHealthz)
 	mux.HandleFunc("/readyz", h.handleReadyz)
 }
@@ -74,7 +88,10 @@ func (h *Handler) handleKV(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request, key string) {
-	// Linearizable reads: only the leader can serve reads.
+	// Leader reads: only the leader serves reads to avoid stale data.
+	// Note: this provides leader reads, not strict linearizability — a deposed leader
+	// could serve one stale read before detecting its demotion. True linearizability
+	// would require a ReadIndex quorum confirmation before serving.
 	if !h.node.IsLeader() {
 		h.redirectToLeader(w, r)
 		return

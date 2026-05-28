@@ -130,6 +130,6 @@ These are enforced in code with inline comments at the enforcement site:
 | fsync per WAL write | No acknowledged write ever lost | ~1ms write latency floor |
 | No log compaction | Simpler correctness — replay grows linearly | Restart time grows with log |
 | gRPC for transport | Typed, retry-friendly, Go-native | ~2ms overhead vs raw TCP |
-| Leader-only reads | Linearizable by construction | All reads pay redirect cost |
+| Leader-only reads | Simple and correct for most workloads — deposed leader risk is bounded by election timeout | Stale reads possible in the narrow window between demotion and detection; true linearizability requires ReadIndex or leases |
 | JSON WAL payloads | Human-readable, easy debugging | Larger records vs binary encoding |
 | In-memory KV store | Simplicity — no embedded DB dependency | Data limited by RAM |

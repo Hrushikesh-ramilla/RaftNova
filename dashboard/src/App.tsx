@@ -98,21 +98,22 @@ function Dashboard() {
       lastLeaderRef.current = leaderID;
     }
 
-    // Generate synthetic log entries when commit index advances
+    // Track commit activity when commit index advances.
+    // We record the index and term; actual operation content is
+    // not surfaced over the status API (would require a /log endpoint).
     if (maxCommit > prevCommitRef.current) {
       const newEntries: LogEntry[] = [];
       for (let i = prevCommitRef.current + 1; i <= maxCommit; i++) {
         newEntries.push({
           index: i,
           term: maxTerm,
-          operation: "PUT",
-          key: `key:${i}`,
-          value: `value-${i}`,
+          operation: "COMMIT",
+          key: `index:${i}`,
+          value: `term:${maxTerm}`,
           timestamp: Date.now(),
         });
       }
       prevCommitRef.current = maxCommit;
-
       setLogEntries((prev) => [...newEntries, ...prev].slice(0, 20));
     }
 
