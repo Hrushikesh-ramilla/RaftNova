@@ -8,7 +8,7 @@ import { TopologyGraph } from "./components/TopologyGraph";
 import { RaftLog } from "./components/RaftLog";
 import { WriteTester } from "./components/WriteTester";
 import { ChaosPanel } from "./components/ChaosPanel";
-import "./styles.css";
+import "./index.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
