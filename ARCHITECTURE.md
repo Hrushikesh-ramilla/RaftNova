@@ -18,6 +18,8 @@ RaftNova is a distributed key-value store that implements the Raft consensus alg
 
 ## Leader Election
 
+![Leader Election Protocol](docs/images/leader-election.png)
+
 ```mermaid
 sequenceDiagram
     participant F1 as Node-1 (Follower)
@@ -50,6 +52,8 @@ sequenceDiagram
 
 ## Log Replication Flow
 
+![Write Path and Replication](docs/images/write-path.png)
+
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -80,6 +84,8 @@ sequenceDiagram
 **Fast log rollback:** When AppendEntries fails due to log inconsistency, the follower returns `ConflictTerm` and `ConflictIndex`. The leader binary-searches its log for the conflict term to skip entire terms, rather than decrementing `nextIndex` one entry at a time.
 
 ## WAL Format Specification
+
+![WAL Binary Format](docs/images/wal-format.png)
 
 Each WAL file is named `wal_NNNNNN.log` (monotonic IDs). Records are binary-encoded:
 
