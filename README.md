@@ -125,7 +125,7 @@ curl http://localhost:8080/kv/mykey
 {"key": "mykey", "value": "hello"}
 ```
 
-Reads are linearizable — only the leader serves reads. Followers return `307 Temporary Redirect` to the leader.
+Reads provide leader-reads — only the leader serves reads to avoid stale data. True strict linearizability requires ReadIndex or leases (left as future work). Followers return `307 Temporary Redirect` to the leader.
 
 ### Delete a key
 

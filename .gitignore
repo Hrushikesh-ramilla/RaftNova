@@ -34,3 +34,8 @@ dist/
 # Coverage
 coverage.html
 coverage.out
+
+# Dashboard build artifacts and dependencies
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.env.local

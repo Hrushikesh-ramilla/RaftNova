@@ -10,6 +10,7 @@ import (
 	"github.com/hrushikesh-ramilla/raftnova/internal/storage"
 )
 
+
 const (
 	electionTimeoutMin = 150 * time.Millisecond
 	electionTimeoutMax = 300 * time.Millisecond
@@ -35,6 +36,7 @@ type Node struct {
 	commitIndex LogIndex
 	lastApplied LogIndex
 	leaderID    NodeID
+	crashed     bool
 
 	// Leader-only volatile state
 	nextIndex  map[NodeID]LogIndex
@@ -52,9 +54,8 @@ type Node struct {
 	logger    *slog.Logger
 
 	// Channels
-	applyCh   chan LogEntry
-	stopCh    chan struct{}
-	commandCh chan *commandRequest
+	applyCh chan LogEntry
+	stopCh  chan struct{}
 
 	// Mutex — single lock for all state
 	mu sync.Mutex
@@ -66,17 +67,6 @@ type Node struct {
 	leaderChanges    int64
 	committedEntries int64
 	electionStart    time.Time
-}
-
-type commandRequest struct {
-	command []byte
-	result  chan commandResult
-}
-
-type commandResult struct {
-	index LogIndex
-	term  Term
-	err   error
 }
 
 // NewNode creates a new Raft node. Call Start() to begin participating in the cluster.
@@ -97,9 +87,8 @@ func NewNode(id NodeID, peers []NodeID, transport Transport, wal *storage.WAL, l
 		transport:     transport,
 		wal:           wal,
 		logger:        logger.With("node", string(id)),
-		applyCh:       make(chan LogEntry, 256),
-		stopCh:        make(chan struct{}),
-		commandCh:     make(chan *commandRequest, 64),
+		applyCh: make(chan LogEntry, 256),
+		stopCh:  make(chan struct{}),
 	}
 	return n
 }
@@ -240,13 +229,15 @@ func (n *Node) startElection() {
 	n.electionStart = time.Now()
 
 	// Persist term and vote before sending any RPCs.
+	// INVARIANT: persistence must succeed — if the WAL fails we cannot safely proceed.
+	// A crash here would leave currentTerm un-persisted, allowing a double-vote on restart.
 	if n.wal != nil {
 		if err := n.wal.PersistTerm(uint64(n.currentTerm)); err != nil {
-			n.logger.Error("failed to persist term", "error", err)
+			panic("raftnova: fatal WAL error persisting term: " + err.Error())
 		}
 		// INVARIANT 2: votedFor is persisted to WAL before any VoteReply is sent
 		if err := n.wal.PersistVote(string(n.votedFor), uint64(n.currentTerm)); err != nil {
-			n.logger.Error("failed to persist vote", "error", err)
+			panic("raftnova: fatal WAL error persisting vote: " + err.Error())
 		}
 	}
 
@@ -365,7 +356,7 @@ func (n *Node) becomeFollowerLocked(term Term) {
 
 		if n.wal != nil {
 			if err := n.wal.PersistTerm(uint64(term)); err != nil {
-				n.logger.Error("failed to persist term", "error", err)
+				panic("raftnova: fatal WAL error persisting term: " + err.Error())
 			}
 		}
 	}
@@ -391,6 +382,18 @@ func (n *Node) becomeFollowerLocked(term Term) {
 // HandleRequestVote processes an incoming RequestVote RPC.
 func (n *Node) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 	n.mu.Lock()
+	// Drop RPC if crash simulation is active.
+	if n.crashed {
+		term := n.currentTerm
+		n.mu.Unlock()
+		// Simulate network partition / dead node — block until stop or timeout
+		select {
+		case <-time.After(10 * time.Minute):
+		case <-n.stopCh:
+		}
+		// Mutex was released above and is NOT re-acquired — return cleanly
+		return RequestVoteReply{Term: term, VoteGranted: false}
+	}
 	defer n.mu.Unlock()
 
 	reply := RequestVoteReply{Term: n.currentTerm, VoteGranted: false}
@@ -419,7 +422,7 @@ func (n *Node) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 		// INVARIANT 2: votedFor is persisted to WAL before any VoteReply is sent
 		if n.wal != nil {
 			if err := n.wal.PersistVote(string(n.votedFor), uint64(n.currentTerm)); err != nil {
-				n.logger.Error("failed to persist vote", "error", err)
+				panic("raftnova: fatal WAL error persisting vote: " + err.Error())
 			}
 		}
 
@@ -447,6 +450,18 @@ func (n *Node) isLogUpToDate(lastTerm Term, lastIndex LogIndex) bool {
 // HandleAppendEntries processes an incoming AppendEntries RPC (heartbeats and log replication).
 func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 	n.mu.Lock()
+	// Drop RPC if crash simulation is active.
+	if n.crashed {
+		term := n.currentTerm
+		n.mu.Unlock()
+		// Simulate network partition / dead node — block until stop or timeout
+		select {
+		case <-time.After(10 * time.Minute):
+		case <-n.stopCh:
+		}
+		// Mutex was released above and is NOT re-acquired — return cleanly
+		return AppendEntriesReply{Term: term, Success: false}
+	}
 	defer n.mu.Unlock()
 
 	reply := AppendEntriesReply{Term: n.currentTerm, Success: false}
@@ -508,10 +523,13 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 
 				// Persist new entries to WAL.
 				if n.wal != nil {
-					for _, e := range args.Entries[i:] {
-						if err := n.wal.PersistEntry(uint64(e.Index), uint64(e.Term), e.Command); err != nil {
-							n.logger.Error("failed to persist entry", "error", err)
-						}
+					records := make([]storage.EntryRecord, len(args.Entries[i:]))
+					for j, e := range args.Entries[i:] {
+						records[j] = storage.EntryRecord{Index: uint64(e.Index), Term: uint64(e.Term), Command: e.Command}
+					}
+					if err := n.wal.PersistEntries(records); err != nil {
+						n.logger.Error("failed to persist entries", "error", err)
+						panic("catastrophic failure: unable to persist entries to WAL")
 					}
 				}
 				break
@@ -521,10 +539,13 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 			n.log.Append(args.Entries[i:]...)
 
 			if n.wal != nil {
-				for _, e := range args.Entries[i:] {
-					if err := n.wal.PersistEntry(uint64(e.Index), uint64(e.Term), e.Command); err != nil {
-						n.logger.Error("failed to persist entry", "error", err)
-					}
+				records := make([]storage.EntryRecord, len(args.Entries[i:]))
+				for j, e := range args.Entries[i:] {
+					records[j] = storage.EntryRecord{Index: uint64(e.Index), Term: uint64(e.Term), Command: e.Command}
+				}
+				if err := n.wal.PersistEntries(records); err != nil {
+					n.logger.Error("failed to persist entries", "error", err)
+					panic("catastrophic failure: unable to persist entries to WAL")
 				}
 			}
 			break
@@ -719,4 +740,42 @@ func (n *Node) LeaderID() NodeID {
 // ID returns this node's ID.
 func (n *Node) ID() NodeID {
 	return n.id
+}
+
+// LogLength returns the number of real log entries (excluding sentinel at index 0).
+func (n *Node) LogLength() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return int(n.log.LastIndex())
+}
+
+// LogEntries returns a copy of all log entries (excluding sentinel).
+func (n *Node) LogEntries() []LogEntry {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	last := n.log.LastIndex()
+	if last == 0 {
+		return nil
+	}
+	return n.log.Entries(1, last)
+}
+
+// IsCrashed returns true if the node is currently simulating a crash.
+func (n *Node) IsCrashed() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.crashed
+}
+
+// SimulateCrash makes the node stop responding to RPCs for the given duration.
+func (n *Node) SimulateCrash(d time.Duration) {
+	n.mu.Lock()
+	n.crashed = true
+	n.mu.Unlock()
+	go func() {
+		time.Sleep(d)
+		n.mu.Lock()
+		n.crashed = false
+		n.mu.Unlock()
+	}()
 }
